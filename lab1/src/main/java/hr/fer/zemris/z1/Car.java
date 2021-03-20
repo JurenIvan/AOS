@@ -1,4 +1,4 @@
-package hr.fer.zemris;
+package hr.fer.zemris.z1;
 
 import java.util.Scanner;
 

@@ -1,4 +1,4 @@
-package hr.fer.zemris;
+package hr.fer.zemris.z1;
 
 import java.io.*;
 import java.util.ArrayList;
@@ -34,13 +34,12 @@ public class Bridge {
     }
 
     public static void main(String[] args) throws IOException, InterruptedException {
-        Runtime.getRuntime().exec("javac -cp src lab1/src/main/java/hr/fer/zemris/Car.java").waitFor();   //compile car
+        Runtime.getRuntime().exec("javac -cp src lab1/src/main/java/hr/fer/zemris/z1/Car.java").waitFor();   //compile car
         sleep(5000);
         List<Process> carProcesses = new ArrayList<>();
         for (int i = 0; i < parseInt(args[0]); i++) {
-            carProcesses.add(Runtime.getRuntime().exec("java -cp lab1/src/main/java hr.fer.zemris.Car " + i));
+            carProcesses.add(Runtime.getRuntime().exec("java -cp lab1/src/main/java hr.fer.zemris.z1.Car " + i));
         }
-
         new Bridge(carProcesses).operate();
     }
 
