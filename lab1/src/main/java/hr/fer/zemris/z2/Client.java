@@ -1,9 +1,12 @@
 package hr.fer.zemris.z2;
 
-import java.io.*;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.LocalDateTime;
 import java.util.*;
+import java.util.function.Function;
 
 import static java.lang.Long.MAX_VALUE;
 import static java.lang.Long.parseLong;
@@ -19,49 +22,35 @@ import static java.util.stream.Collectors.toList;
 
 public class Client {
 
-    private static final int REPEAT_COUNT = 50;
+    private static final int REPEAT_COUNT = 10;
     private static final Scanner SCANNER = new Scanner(System.in);
-    private static final Object lock = new Object();
-    private final long pid;
-    private final Map<String, RandomAccessFile> outPipesCache = new HashMap<>();
+    private static final long PID = current().pid();
+    private static final Map<String, RandomAccessFile> outPipesCache = new HashMap<>();
+    private static final String DELIMITER = " ";
+    private static final ReaderIfNonePresent READER_FUCTION = new ReaderIfNonePresent();
+
     private final Path databasePath;
     private final List<Long> clientPids;
     private final RandomAccessFile inPipeRequests;
     private final RandomAccessFile inPipeResponses;
-    private final RandomAccessFile dbOut;
     private final Set<Long> delayedResponse = new HashSet<>();
 
-    private boolean alive = true;
     private long localClock = 0;
     private long whenIWant = MAX_VALUE;
+    private boolean alive = true;
 
-    public Client(String dbPath, String clientPids) throws FileNotFoundException {
-        this.pid = current().pid();
+    public Client(String dbPath, String allClientPids) throws FileNotFoundException {
         this.databasePath = Path.of(dbPath);
-        this.clientPids = stream(clientPids.split(" ")).map(Long::parseLong).filter(e -> !e.equals(pid)).collect(toList());
-        inPipeRequests = new RandomAccessFile("lab1/temp/pipe-" + pid + "-Q", "rw");
-        inPipeResponses = new RandomAccessFile("lab1/temp/pipe-" + pid + "-A", "rw");
-        dbOut = new RandomAccessFile("lab1/temp/pipe-" + pid + "-DB", "rw");
+        this.clientPids = stream(allClientPids.split(DELIMITER)).map(Long::parseLong).filter(e -> !e.equals(PID)).collect(toList());
+        inPipeRequests = new RandomAccessFile("lab1/temp/pipe-" + PID + "-Q", "rw");
+        inPipeResponses = new RandomAccessFile("lab1/temp/pipe-" + PID + "-A", "rw");
 
-        new Thread(() -> {
-            new Scanner(System.in).nextLine();
-            alive = false;
-            try {
-                inPipeRequests.close();
-                inPipeResponses.close();
-                for (RandomAccessFile e : outPipesCache.values()) {
-                    e.close();
-                }
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }).start();
+        new Thread(new KillerRunner()).start();
     }
 
     public static void main(String[] args) throws IOException, InterruptedException {
-        System.err.println("CLIENT PID: " + current().pid());
+        System.err.printf("CLIENT PID: %d%n", PID);
         var otherClientPids = SCANNER.nextLine();
-        sleep(1000);
 
         new Client(args[0], otherClientPids).start();
     }
@@ -70,29 +59,27 @@ public class Client {
         new Thread(responder()).start();
 
         for (int j = 0; j < REPEAT_COUNT; j++) {
-            synchronized (lock) {
+            synchronized (Client.class) {
                 whenIWant = localClock;
                 for (var clientPid : clientPids) {
-                    System.err.println(pid + " " + clientPid + " REQ_REQ (" + pid + ", " + localClock + ")");
-                    sendMessage(clientPid, "-Q", whoPlusClock());
+                    System.err.printf("%d %d REQ_REQ (%d, %d)%n", PID, clientPid, PID, whenIWant);
+                    sendMessage(clientPid, "-Q", pidPlusClock(whenIWant));
                 }
             }
 
             for (int i = 0; i < clientPids.size(); i++) {
-                var response = receiveResponse().split(" ");
-                var when = parseLong(response[1]);
-                var who = parseLong(response[0]);
-                System.err.println(pid + " " + who + " ANS_FROM " + i);
+                var parsedResponse = receiveResponse().split(DELIMITER);
+                var when = parseLong(parsedResponse[1]);
 
-                synchronized (lock) {
+                synchronized (Client.class) {
                     localClock = max(when, localClock) + 1;
                     if (i + 1 == clientPids.size()) {
 
-                        System.err.println("\nDatabase dump (" + pid + ")\n" + updateRecord() + "\n");
+                        System.err.printf("\nDatabase dump (%d)\n%s\n%n", PID, updateRecord());
                         whenIWant = MAX_VALUE;
                         delayedResponse.forEach(delayed -> {
-                            System.err.println(pid + " " + delayed + " ANS_DEL (" + pid + ", " + localClock + ")");
-                            sendMessage(delayed, "-A", whoPlusClock());
+                            System.err.printf("%d %d ANS_DEL (%d, %d)%n", PID, delayed, PID, localClock);
+                            sendMessage(delayed, "-A", pidPlusClock(localClock));
                         });
                         delayedResponse.clear();
                     }
@@ -105,16 +92,16 @@ public class Client {
     private Runnable responder() {
         return () -> {
             while (alive) {
-                var request = receiveQuestion().split(" ");
+                var request = receiveQuestion().split(DELIMITER);
+
                 long who = parseLong(request[0]);
                 long when = parseLong(request[1]);
-                System.err.println(who + " " + pid + " REQ_IN  (" + who + ", " + when + ")");
-                synchronized (lock) {
-                    for (int i = 0; i < 1000000; i++) ;
+                System.err.printf("%d %d REQ_IN  (%d, %d)%n", PID, who, who, when);
+                synchronized (Client.class) {
                     localClock = max(when, localClock) + 1;
-                    if (whenIWant > when || (whenIWant == when && pid > who)) {
-                        sendMessage(who, "-A", whoPlusClock());
-                        System.err.println(pid + " " + who + " ANS_NOW (" + who + ", " + localClock + ")" + whenIWant);
+                    if (whenIWant > when || (whenIWant == when && PID > who)) {
+                        sendMessage(who, "-A", pidPlusClock(localClock));
+                        System.err.printf("%d %d ANS_NOW (%d, %d)%d%n", PID, who, who, localClock, whenIWant);
                     } else {
                         delayedResponse.add(who);
                     }
@@ -123,63 +110,26 @@ public class Client {
         };
     }
 
-    /**
-     * Writting on disc resulted in inconsisted results because filesystem wasn't persisting on disc.
-     *
-     * @return
-     * @throws IOException
-     */
     private String updateRecord() throws IOException {
-        String string;
-        System.err.println(pid + " READ " + LocalDateTime.now());
         var lines = readAllLines(databasePath);
-        for (int i = 0; i < lines.size(); i++) {
-            var parsed = lines.get(i).split(" ");
-            if (parsed[0].equals(valueOf(pid))) {
-                lines.set(i, pid + " " + localClock + " " + (parseLong(parsed[2]) + 1));
-                string = join("\n", lines);
-                System.err.println(pid + " WRITE " + LocalDateTime.now());
-                BufferedWriter writer = new BufferedWriter(new FileWriter(databasePath.toFile(), false));
-                writer.write(string);
-                writer.flush();
-                writer.close();
-                return string;
+        var isNotPresent = true;
+        for (int i = 0; i < lines.size() && isNotPresent; i++) {
+            var parsed = lines.get(i).split(DELIMITER);
+            if (parsed[0].equals(valueOf(PID))) {
+                lines.set(i, "%d %d %d".formatted(PID, localClock, parseLong(parsed[2]) + 1));
+                isNotPresent = false;
             }
         }
-        lines.add(pid + " " + localClock + " " + 1);
-        string = join("\n", lines);
-        BufferedWriter writer = new BufferedWriter(new FileWriter(databasePath.toFile(), false));
-        System.err.println(pid + " WRITE " + LocalDateTime.now());
-        writer.write(string);
-        writer.flush();
-        writer.close();
+        if (isNotPresent)
+            lines.add("%d %d %d".formatted(PID, localClock, 1));
+
+        String string = join("\n", lines);
+        Files.writeString(databasePath, string);
         return string;
     }
 
-//    private String updateRecord() throws IOException {
-//        sendMessage("db", "READ " + pid);
-//        var isNew = true;
-//        var response = dbOut.readLine();
-//        var lines = stream(response.split("\t")).collect(toList());
-//        for (int i = 0; i < lines.size(); i++) {
-//            var parsed = lines.get(i).split(" ");
-//            if (parsed[0].equals(valueOf(pid))) {
-//                sendMessage("db", "WRITE " + pid + " " + localClock + " " + (parseLong(parsed[2]) + 1));
-//                isNew = false;
-//            }
-//        }
-//        if (isNew) {
-//            sendMessage("db", "WRITE " + pid + " " + localClock + " " + 1);
-//        }
-//        return response.replace("\t", "\n");
-//    }
-
-    private Long randomSleep() {
-        return 100 + round(random() * 1900);
-    }
-
-    private String whoPlusClock() {
-        return pid + " " + localClock;
+    private String pidPlusClock(long clock) {
+        return PID + " " + clock;
     }
 
     private void sendMessage(Long pid, String pipe, String message) {
@@ -188,14 +138,7 @@ public class Client {
 
     private void sendMessage(String to, String message) {
         try {
-            outPipesCache.computeIfAbsent(to, (e) -> {
-                try {
-                    return new RandomAccessFile("lab1/temp/pipe-" + to, "rw");
-                } catch (FileNotFoundException fileNotFoundException) {
-                    fileNotFoundException.printStackTrace();
-                    return null;
-                }
-            });
+            outPipesCache.computeIfAbsent(to, READER_FUCTION);
             outPipesCache.get(to).write((message + "\n").getBytes(UTF_8));
         } catch (IOException e) {
             e.printStackTrace();
@@ -210,11 +153,41 @@ public class Client {
         }
     }
 
-    private String receiveResponse() {
-        try {
-            return inPipeResponses.readLine();
-        } catch (IOException e) {
-            return "";
+    private String receiveResponse() throws IOException {
+        return inPipeResponses.readLine();
+    }
+
+    private static Long randomSleep() {
+        return 100 + round(random() * 1900);
+    }
+
+    private class KillerRunner implements Runnable {
+        @Override
+        public void run() {
+            new Scanner(System.in).nextLine();
+            alive = false;
+            try {
+                inPipeRequests.close();
+                inPipeResponses.close();
+                for (RandomAccessFile e : outPipesCache.values()) {
+                    e.close();
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private static class ReaderIfNonePresent implements Function<String, RandomAccessFile> {
+
+        @Override
+        public RandomAccessFile apply(String key) {
+            try {
+                return new RandomAccessFile("lab1/temp/pipe-" + key, "rw");
+            } catch (FileNotFoundException fileNotFoundException) {
+                fileNotFoundException.printStackTrace();
+                return null;
+            }
         }
     }
 }

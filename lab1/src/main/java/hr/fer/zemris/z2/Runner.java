@@ -23,8 +23,8 @@ public class Runner {
         Runtime.getRuntime().exec("touch lab1/temp/db.txt").waitFor();
         Runtime.getRuntime().exec("mkfifo lab1/temp/pipe-db").waitFor();
         Runtime.getRuntime().exec("javac -cp src lab1/src/main/java/hr/fer/zemris/z2/Client.java").waitFor();
-        Runtime.getRuntime().exec("javac -cp src lab1/src/main/java/hr/fer/zemris/z2/Database.java").waitFor();
-        var db = Runtime.getRuntime().exec("java -cp lab1/src/main/java hr.fer.zemris.z2.Database");
+//        Runtime.getRuntime().exec("javac -cp src lab1/src/main/java/hr/fer/zemris/z2/Database.java").waitFor();
+//        var db = Runtime.getRuntime().exec("java -cp lab1/src/main/java hr.fer.zemris.z2.Database");
 
         sleep(1000);
 
@@ -33,7 +33,7 @@ public class Runner {
             clients.add(Runtime.getRuntime().exec("java -cp lab1/src/main/java hr.fer.zemris.z2.Client lab1/temp/db.txt"));
             Runtime.getRuntime().exec("mkfifo lab1/temp/pipe-" + clients.get(i).pid() + "-Q");
             Runtime.getRuntime().exec("mkfifo lab1/temp/pipe-" + clients.get(i).pid() + "-A");
-            Runtime.getRuntime().exec("mkfifo lab1/temp/pipe-" + clients.get(i).pid() + "-DB");
+//            Runtime.getRuntime().exec("mkfifo lab1/temp/pipe-" + clients.get(i).pid() + "-DB");
         }
 
 
@@ -42,7 +42,7 @@ public class Runner {
         String clientPids = clients.stream().map(Process::pid).map(String::valueOf).collect(joining(" "));
         System.out.println(clientPids);
         clients.stream().map(e -> (new OutputStreamWriter(e.getOutputStream()))).forEach(e -> sendMessage(clientPids, e));
-        clients.add(db);
+//        clients.add(db);
         var clientReadersOut = clients.stream().map(e -> new BufferedReader(new InputStreamReader(e.getInputStream()))).collect(toList());
         var clientReadersErr = clients.stream().map(e -> new BufferedReader(new InputStreamReader(e.getErrorStream()))).collect(toList());
 

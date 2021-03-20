@@ -45,7 +45,14 @@ public class Database {
 
     private void sendMessage(long pid, String message) {
         try {
-            outPipesCache.putIfAbsent(pid, new RandomAccessFile("lab1/temp/pipe-" + pid + "-DB", "rw"));
+            outPipesCache.computeIfAbsent(pid, key -> {
+                try {
+                    return new RandomAccessFile("lab1/temp/pipe-" + pid + "-DB", "rw");
+                } catch (FileNotFoundException e) {
+                    e.printStackTrace();
+                    return null;
+                }
+            });
             outPipesCache.get(pid).write((message + "\n").getBytes(UTF_8));
         } catch (IOException e) {
             e.printStackTrace();
