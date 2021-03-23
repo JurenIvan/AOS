@@ -22,7 +22,7 @@ import static java.util.stream.Collectors.toList;
 
 public class Client {
 
-    private static final int REPEAT_COUNT = 10;
+    private static final int REPEAT_COUNT = 5;
     private static final Scanner SCANNER = new Scanner(System.in);
     private static final long PID = current().pid();
     private static final Map<String, RandomAccessFile> outPipesCache = new HashMap<>();
@@ -44,8 +44,6 @@ public class Client {
         this.clientPids = stream(allClientPids.split(DELIMITER)).map(Long::parseLong).filter(e -> !e.equals(PID)).collect(toList());
         inPipeRequests = new RandomAccessFile("lab1/temp/pipe-" + PID + "-Q", "rw");
         inPipeResponses = new RandomAccessFile("lab1/temp/pipe-" + PID + "-A", "rw");
-
-        new Thread(new KillerRunner()).start();
     }
 
     public static void main(String[] args) throws IOException, InterruptedException {
@@ -56,6 +54,7 @@ public class Client {
     }
 
     private void start() throws IOException, InterruptedException {
+        new Thread(new KillerRunner()).start();
         new Thread(responder()).start();
 
         for (int j = 0; j < REPEAT_COUNT; j++) {
@@ -101,7 +100,7 @@ public class Client {
                     localClock = max(when, localClock) + 1;
                     if (whenIWant > when || (whenIWant == when && PID > who)) {
                         sendMessage(who, "-A", pidPlusClock(localClock));
-                        System.err.printf("%d %d ANS_NOW (%d, %d)%d%n", PID, who, who, localClock, whenIWant);
+                        System.err.printf("%d %d ANS_NOW (%d, %d)%n", PID, who, who, localClock);
                     } else {
                         delayedResponse.add(who);
                     }
